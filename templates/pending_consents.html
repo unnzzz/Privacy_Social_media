@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Pending Consent Requests</h2>
+<ul>
+  {% for consent in consents %}
+    <li>
+      Recording from {{ consent.recording.user.name }} (Recording ID: {{ consent.recording_id }})
+      (<a href="{{ url_for('consent', recording_id=consent.recording_id, friend_id=consent.friend_id) }}">Review Consent</a>)
+    </li>
+  {% else %}
+    <li>No pending consent requests.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

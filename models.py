@@ -12,12 +12,11 @@ friend_association = db.Table('friend_association',
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(120), nullable=False)  # User's name
+    name = db.Column(db.String(120), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(128))
     reference_media = db.Column(db.String(200))
     face_encoding = db.Column(db.PickleType)
-    # New field: Public vs. Private account. True means public.
     is_public_account = db.Column(db.Boolean, default=True)
     friends = db.relationship('User', secondary=friend_association,
                               primaryjoin=id==friend_association.c.user_id,
@@ -25,7 +24,6 @@ class User(UserMixin, db.Model):
                               backref='friend_of')
     
     def get_all_known_encodings(self):
-        """Return own encodings plus those of friends."""
         encodings = []
         if self.face_encoding:
             encodings.extend(self.face_encoding)
@@ -38,21 +36,28 @@ class FriendRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     sender_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     receiver_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    status = db.Column(db.String(20), default='pending')  # pending, accepted, rejected
+    status = db.Column(db.String(20), default='pending')
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     
     sender = db.relationship('User', foreign_keys=[sender_id])
     receiver = db.relationship('User', foreign_keys=[receiver_id])
-
 
 class Recording(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     filename = db.Column(db.String(200))
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-    consent_status = db.Column(db.String(20), default='pending')
+    consent_status = db.Column(db.String(20), default='pending')  # (optional overall field)
     is_shared = db.Column(db.Boolean, default=False)
     
     user = db.relationship('User', backref='recordings')
+    consents = db.relationship('Consent', backref='recording', cascade="all, delete-orphan")
 
-
+class Consent(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    recording_id = db.Column(db.Integer, db.ForeignKey('recording.id'))
+    friend_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    consent = db.Column(db.Boolean, nullable=True)  # True if consent given, False if rejected, None if pending
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    friend = db.relationship('User', backref='consents')

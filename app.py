@@ -1,6 +1,6 @@
 from flask import Flask, render_template, redirect, url_for, request, flash, Response
 from config import Config
-from models import db, User, FriendRequest, Recording
+from models import db, User, FriendRequest, Recording, Consent
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
@@ -211,38 +211,25 @@ def stop_recording():
     if recording and recorder:
         recorder.stop()
         recorder.join()
+        recordings_folder = os.path.join(app.root_path, 'static', 'recordings')
+        filename = os.path.basename(recorder.filename)
+        new_recording = Recording(user_id=current_user.id, filename=filename, is_shared=False)
+        db.session.add(new_recording)
+        db.session.commit()
 
-        # Get the raw file path from recorder.
-        raw_filepath = recorder.filename  # e.g., "static/recordings/recording_{user_id}_{timestamp}.avi" or .mp4
-        
-        # Define the output file path. We will save the converted file as MP4.
-        # For example, if raw_filepath is "static/recordings/recording_1_1612345678.mp4",
-        # output could be "static/recordings/recording_1_1612345678_converted.mp4"
-        import os
-        base, ext = os.path.splitext(raw_filepath)
-        output_filepath = f"{base}_converted.mp4"
-        
-        try:
-            convert_video(raw_filepath, output_filepath)
-            print(f"Video converted: {output_filepath}")
-            flash("Recording converted and shared.")
-            
-            # Optionally, remove the raw file if no longer needed:
-            os.remove(raw_filepath)
-            
-            # Save the recording info to the database using the converted file's name.
-            from models import Recording  # Ensure Recording is imported
-            filename_only = os.path.basename(output_filepath)
-            new_recording = Recording(user_id=current_user.id, filename=filename_only, is_shared=False)
-            db.session.add(new_recording)
-            db.session.commit()
-        except subprocess.CalledProcessError as e:
-            print("Video conversion failed:", e)
-            flash("Recording stopped, but conversion failed.")
-        
+        # Use the helper to detect which friends appear in the recording.
+        friend_ids_in_recording = get_friends_in_recording(recorder.filename, current_user)
+        print("Detected friend IDs in recording:", friend_ids_in_recording)
+        for friend_id in friend_ids_in_recording:
+            consent_entry = Consent(recording_id=new_recording.id, friend_id=friend_id, consent=None)
+            db.session.add(consent_entry)
+        db.session.commit()
+
         recorder = None
         recording = False
+        flash("Recording stopped. Awaiting friend consents for unblurring their faces.")
     return redirect(url_for('live'))
+
 
 # --- Generator for Video Feed ---
 def gen_frames(user_face_encodings):
@@ -283,16 +270,7 @@ def video_feed():
 def live():
     return render_template('live.html')
 
-# --- Consent Page (simplified) ---
-@app.route('/consent/<int:recording_id>', methods=['GET', 'POST'])
-@login_required
-def consent(recording_id):
-    if request.method == 'POST':
-        consent = request.form.get('consent')
-        # Update the recording record in the database (to be implemented)
-        flash("Consent updated.")
-        return redirect(url_for('recordings'))
-    return render_template('consent.html', recording_id=recording_id)
+
 
 # --- Send Friend Request ---
 @app.route('/send_friend_request', methods=['GET', 'POST'])
@@ -406,6 +384,23 @@ def share_recording(recording_id):
     return redirect(url_for('recordings'))
 
 
+
+
+from models import Recording
+from recording_processing import gen_recording_frames  # Import the generator
+
+@app.route('/play_recording/<int:recording_id>')
+@login_required
+def play_recording(recording_id):
+    recording = Recording.query.get(recording_id)
+    if not recording:
+        flash("Recording not found.")
+        return redirect(url_for('feed'))
+    # Optionally add access checks (e.g., if current_user is allowed to view this recording)
+    return Response(gen_recording_frames(recording),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
 @app.route('/feed')
 @login_required
 def feed():
@@ -433,6 +428,93 @@ def feed():
     
     return render_template('feed.html', recordings=all_recordings)
 
+import face_recognition
+
+def get_friends_in_recording(file_path, current_user, frame_interval=10, threshold=0.6):
+    """
+    Processes the video at file_path and returns a list of friend IDs (from current_user.friends)
+    whose face appears in the video. The function processes one out of every 'frame_interval' frames.
+    
+    :param file_path: Full path to the video file.
+    :param current_user: The currently logged-in user. Assumes current_user.friends is populated and 
+                         each friend has a 'face_encoding' attribute (a list of encodings).
+    :param frame_interval: Process one frame every 'frame_interval' frames.
+    :param threshold: Distance threshold for face matching.
+    :return: List of friend IDs detected in the video.
+    """
+    detected_friend_ids = set()
+    
+    # Build a dictionary mapping friend_id to their face encodings.
+    friend_encodings = {}
+    for friend in current_user.friends:
+        if friend.face_encoding:
+            friend_encodings[friend.id] = friend.face_encoding
+    if not friend_encodings:
+        return list(detected_friend_ids)
+    
+    cap = cv2.VideoCapture(file_path)
+    if not cap.isOpened():
+        print("Error: Unable to open video file:", file_path)
+        return list(detected_friend_ids)
+    
+    frame_count = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        # Process one frame every 'frame_interval' frames.
+        if frame_count % frame_interval == 0:
+            # Convert BGR to RGB.
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            # Detect face locations.
+            face_locations = face_recognition.face_locations(rgb_frame, model="hog")
+            if face_locations:
+                # Get encodings for all detected faces.
+                face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
+                for encoding in face_encodings:
+                    # Compare this face with each friend's stored encodings.
+                    for friend_id, encodings in friend_encodings.items():
+                        distances = face_recognition.face_distance(encodings, encoding)
+                        if distances.size > 0 and min(distances) < threshold:
+                            detected_friend_ids.add(friend_id)
+                            # Once we detect this friend in one frame, we can break out.
+                            break
+        frame_count += 1
+    cap.release()
+    return list(detected_friend_ids)
+@app.route('/consent/<int:recording_id>/<int:friend_id>', methods=['GET', 'POST'])
+@login_required
+def consent(recording_id, friend_id):
+    # Only allow the friend (the intended recipient) to access this page.
+    if current_user.id != friend_id:
+        flash("Unauthorized access.")
+        return redirect(url_for('dashboard'))
+    
+    # Retrieve the consent entry from the database.
+    consent_entry = Consent.query.filter_by(recording_id=recording_id, friend_id=friend_id).first()
+    if not consent_entry:
+        flash("No consent request found.")
+        return redirect(url_for('dashboard'))
+    
+    if request.method == 'POST':
+        decision = request.form.get('decision')
+        if decision == 'accept':
+            consent_entry.consent = True
+        elif decision == 'reject':
+            consent_entry.consent = False
+        db.session.commit()
+        flash("Your consent decision has been recorded.")
+        return redirect(url_for('dashboard'))
+    
+    return render_template('consent.html', recording_id=recording_id, friend_id=friend_id)
+
+@app.route('/pending_consents')
+@login_required
+def pending_consents():
+    # Query for Consent entries where current_user is the friend and consent is None (pending)
+    pending = Consent.query.filter_by(friend_id=current_user.id, consent=None).all()
+    return render_template('pending_consents.html', consents=pending)
 
 
 

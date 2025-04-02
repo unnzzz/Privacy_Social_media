@@ -6,12 +6,12 @@
     <div style="margin-bottom:20px;">
       <p>
         <strong>{{ rec.user.name if rec.user else "Unknown" }}</strong> -
-        {{ rec.timestamp|local_time }}
+        {{ rec.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
       </p>
-      <video width="320" height="240" controls>
-        <source src="{{ url_for('static', filename='recordings/' ~ rec.filename) }}" type="video/mp4">
-        Your browser does not support the video tag.
-      </video>
+      <!-- Link to a separate page that plays the recording with consent-based processing -->
+      <a href="{{ url_for('play_recording', recording_id=rec.id) }}">
+        <img src="{{ url_for('static', filename='recordings/' ~ rec.filename) }}" alt="Recording" style="max-width:320px;">
+      </a>
     </div>
   {% endfor %}
 {% else %}
