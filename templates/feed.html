@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Feed</h2>
+{% if recordings %}
+  {% for rec in recordings %}
+    <div style="margin-bottom:20px;">
+      <p>
+        <strong>{{ rec.user.name if rec.user else "Unknown" }}</strong> -
+        {{ rec.timestamp|local_time }}
+      </p>
+      <video width="320" height="240" controls>
+        <source src="{{ url_for('static', filename='recordings/' ~ rec.filename) }}" type="video/mp4">
+        Your browser does not support the video tag.
+      </video>
+    </div>
+  {% endfor %}
+{% else %}
+  <p>No recordings in the feed.</p>
+{% endif %}
+{% endblock %}

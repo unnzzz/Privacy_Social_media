@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Your Recordings</h2>
+<ul>
+  {% for rec in recordings %}
+    <li>
+      <a href="{{ url_for('static', filename='recordings/' ~ rec.filename) }}">
+        {{ rec.filename }} - {{ rec.timestamp|local_time }}
+      </a>
+      {% if not rec.is_shared %}
+        <a href="{{ url_for('share_recording', recording_id=rec.id) }}">
+          <button type="button">Share</button>
+        </a>
+      {% else %}
+        (Shared)
+      {% endif %}
+    </li>
+  {% else %}
+    <li>No recordings available.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

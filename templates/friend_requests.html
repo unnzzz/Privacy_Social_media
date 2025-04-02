@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Incoming Friend Requests</h2>
+<ul>
+    {% for req in requests %}
+        <li>
+            From: {{ req.sender.name }} ({{ req.sender.email }})
+            <a href="{{ url_for('accept_friend_request', request_id=req.id) }}">Accept</a> |
+            <a href="{{ url_for('reject_friend_request', request_id=req.id) }}">Reject</a>
+        </li>
+    {% else %}
+        <li>No friend requests.</li>
+    {% endfor %}
+</ul>
+{% endblock %}
+

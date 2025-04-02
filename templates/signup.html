@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Sign Up</h2>
+<form id="signup-form" method="post" enctype="multipart/form-data">
+  <label>Name: <input type="text" name="name" required></label><br>
+  <label>Email: <input type="email" name="email" required></label><br>
+  <label>Password: <input type="password" name="password" required></label><br>
+  <label>Account Type:</label>
+  <label><input type="radio" name="account_type" value="public" checked> Public</label>
+  <label><input type="radio" name="account_type" value="private"> Private</label><br>
+
+  <h3>Option 1: Upload Images</h3>
+  <p>You may upload one or more face images from your computer.</p>
+  <input type="file" name="upload_images" id="upload_images" accept="image/*" multiple>
+
+  <hr>
+
+  <h3>Option 2: Capture Images from Webcam</h3>
+  <p>Alternatively, use your webcam to capture face images.</p>
+  <div id="capture-section">
+    <video id="video" width="320" height="240" autoplay muted></video>
+    <canvas id="canvas" width="320" height="240" style="display:none"></canvas>
+    <br>
+    <button type="button" id="capture-btn">Capture Picture</button>
+    <div id="captured-images"></div>
+  </div>
+  <!-- Hidden file input to store captured images -->
+  <input type="file" name="captured_images" id="captured_images" multiple style="display:none">
+
+  <br>
+  <button type="submit">Sign Up</button>
+</form>
+
+<script>
+  // Webcam capture code for Option 2.
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const captureBtn = document.getElementById('capture-btn');
+  const capturedImagesDiv = document.getElementById('captured-images');
+  const capturedImagesInput = document.getElementById('captured_images');
+
+  // Request access to the webcam.
+  navigator.mediaDevices.getUserMedia({ video: true })
+    .then(stream => {
+      video.srcObject = stream;
+      window.stream = stream;
+    })
+    .catch(error => {
+      console.error('Error accessing webcam:', error);
+    });
+
+  captureBtn.addEventListener('click', () => {
+    const context = canvas.getContext('2d');
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    // Convert canvas to data URL.
+    const dataURL = canvas.toDataURL('image/jpeg');
+
+    // Display captured image.
+    const img = document.createElement('img');
+    img.src = dataURL;
+    img.style.maxWidth = '160px';
+    img.style.margin = '5px';
+    capturedImagesDiv.appendChild(img);
+
+    // Convert dataURL to a File object and add it to the hidden file input.
+    fetch(dataURL)
+      .then(res => res.blob())
+      .then(blob => {
+        const file = new File([blob], 'captured.jpg', { type: 'image/jpeg' });
+        // Use DataTransfer to simulate multiple file selection.
+        let dt = new DataTransfer();
+        // Preserve existing files.
+        for (let i = 0; i < capturedImagesInput.files.length; i++) {
+          dt.items.add(capturedImagesInput.files[i]);
+        }
+        dt.items.add(file);
+        capturedImagesInput.files = dt.files;
+      });
+  });
+</script>
+{% endblock %}
