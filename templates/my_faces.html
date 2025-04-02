@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>My Submitted Face Photos</h2>
+<ul>
+  {% for photo in photos %}
+    <li>
+      <img src="{{ url_for('user_faces', filename=photo) }}" alt="{{ photo }}" style="max-width:200px;">
+      {{ photo }}
+    </li>
+  {% else %}
+    <li>You have not submitted any face photos yet.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

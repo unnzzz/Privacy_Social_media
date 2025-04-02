@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Live Stream</h2>
+<img src="{{ url_for('video_feed') }}" alt="Live Stream" style="max-width:100%;">
+
+<div style="margin-top:20px;">
+  <a href="{{ url_for('start_recording') }}"><button type="button">Start Recording</button></a>
+  <a href="{{ url_for('stop_recording') }}"><button type="button">Stop Recording</button></a>
+</div>
+{% endblock %}

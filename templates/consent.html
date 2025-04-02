@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Consent Request for Recording {{ recording_id }}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    video { max-width: 100%; height: auto; }
+    form { margin-top: 20px; }
+    label { display: block; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Consent Request for Recording {{ recording_id }}</h1>
+  <p>Please review the recording below. Do you consent to have your face unblurred in this recording?</p>
+  <video controls>
+    <source src="{{ url_for('static', filename='recordings/recording_' ~ recording_id ~ '.mp4') }}" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
+  <form method="post">
+    <p>
+      <label>
+        <input type="radio" name="consent" value="approved" required>
+        I consent to have my face unblurred.
+      </label>
+    </p>
+    <p>
+      <label>
+        <input type="radio" name="consent" value="denied" required>
+        I do NOT consent to have my face unblurred.
+      </label>
+    </p>
+    <button type="submit">Submit Consent</button>
+  </form>
+</body>
+</html>

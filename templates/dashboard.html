@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Welcome, {{ user.name }}</h2>
+<nav>
+    <a href="{{ url_for('dashboard') }}">Dashboard</a> |
+    <a href="{{ url_for('live') }}">Live Stream</a> |
+    <a href="{{ url_for('recordings') }}">My Recordings</a> |
+    <a href="{{ url_for('feed') }}">Feed</a> |
+    <a href="{{ url_for('friends') }}">My Friends</a> |
+    <a href="{{ url_for('my_faces') }}">My Face Photos</a> |
+    <a href="{{ url_for('send_friend_request') }}">Send Friend Request</a> |
+    <a href="{{ url_for('friend_requests') }}">View Friend Requests</a> |
+    <a href="{{ url_for('logout') }}">Logout</a>
+  </nav>
+  
+      
+{% endblock %}
