@@ -75,8 +75,8 @@ def load_known_encodings():
 KNOWN_ENCODINGS = load_known_encodings()
 
 # --- Recognition Parameters ---
-KNOWN_THRESHOLD_LOW = 0.5    # Below this average distance, classify as "Known"
-KNOWN_THRESHOLD_HIGH = 0.8  # Above this, classify as "Blurred"
+KNOWN_THRESHOLD_LOW = 0.4    # Below this average distance, classify as "Known"
+KNOWN_THRESHOLD_HIGH = 0.7  # Above this, classify as "Blurred"
 HISTORY_DURATION = 2.0       # Keep history for 2 seconds
 MATCH_DIST_THRESHOLD = 50    # If detection centers are within 50 pixels, consider them the same face
 HISTORY_LENGTH = 20          # Maximum number of frames in history
