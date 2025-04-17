@@ -75,8 +75,8 @@ def load_known_encodings():
 KNOWN_ENCODINGS = load_known_encodings()
 
 # --- Recognition Parameters ---
-KNOWN_THRESHOLD_LOW = 0.4    # Below this average distance, classify as "Known"
-KNOWN_THRESHOLD_HIGH = 0.7  # Above this, classify as "Blurred"
+KNOWN_THRESHOLD_LOW = 0.5    # Below this average distance, classify as "Known"
+KNOWN_THRESHOLD_HIGH = 0.6  # Above this, classify as "Blurred"
 HISTORY_DURATION = 2.0       # Keep history for 2 seconds
 MATCH_DIST_THRESHOLD = 50    # If detection centers are within 50 pixels, consider them the same face
 HISTORY_LENGTH = 20          # Maximum number of frames in history
@@ -209,6 +209,53 @@ def process_frame(frame, known_encodings=KNOWN_ENCODINGS, scale_factor=0.5):
         cv2.putText(frame, f"{label} ({distance_display})", (x1, y1 - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
     return frame
+import cv2
+import face_recognition
+
+def detect_friends_in_recording(recording_path, friend_encodings, frame_skip=30, tolerance=0.6):
+    """
+    Scans a video file, sampling every `frame_skip` frames,
+    runs face recognition, and returns a list of friend IDs
+    whose face encoding was detected in at least one frame.
+    
+    - recording_path: full path to the video file (e.g., MP4)
+    - friend_encodings: a dictionary mapping user IDs to their face encoding(s).
+      This may be a single encoding or a list of encodings.
+    - tolerance: maximum face_distance to consider a match.
+    """
+    cap = cv2.VideoCapture(recording_path)
+    if not cap.isOpened():
+        print(f"Error opening video file: {recording_path}")
+        return []
+    
+    detected = set()
+    frame_idx = 0
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        if frame_idx % frame_skip == 0:
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            # Detect all faces in the frame
+            face_locations = face_recognition.face_locations(rgb_frame, model='hog')
+            encodings = face_recognition.face_encodings(rgb_frame, known_face_locations=face_locations)
+            for enc in encodings:
+                for user_id, f_enc in friend_encodings.items():
+                    # Check if the stored encoding is a list (multiple images)
+                    if isinstance(f_enc, list):
+                        distances = face_recognition.face_distance(f_enc, enc)
+                        if any(d <= tolerance for d in distances):
+                            detected.add(user_id)
+                    else:
+                        # f_enc is a single encoding
+                        distance = face_recognition.face_distance([f_enc], enc)[0]
+                        if distance <= tolerance:
+                            detected.add(user_id)
+        frame_idx += 1
+
+    cap.release()
+    return list(detected)
 
 # --- Optional: Standalone Testing ---
 if __name__ == '__main__':

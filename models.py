@@ -23,7 +23,15 @@ class User(UserMixin, db.Model):
                               primaryjoin=id==friend_association.c.user_id,
                               secondaryjoin=id==friend_association.c.friend_id,
                               backref='friend_of')
-    
+
+    def get_friends(self):
+        # all users where a FriendRequest exists with status='accepted'
+        sent = FriendRequest.query.filter_by(sender_id=self.id, status='accepted').all()
+        recv = FriendRequest.query.filter_by(receiver_id=self.id, status='accepted').all()
+        # gather unique User objects
+        friends = {fr.receiver for fr in sent} | {fr.sender for fr in recv}
+        return list(friends)
+
     def get_all_known_encodings(self):
         """Return own encodings plus those of friends."""
         encodings = []
@@ -51,8 +59,19 @@ class Recording(db.Model):
     filename = db.Column(db.String(200))
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     consent_status = db.Column(db.String(20), default='pending')
-    is_shared = db.Column(db.Boolean, default=False)
-    
-    user = db.relationship('User', backref='recordings')
+    is_shared     = db.Column(db.Boolean, default=False)
+    user          = db.relationship('User', backref='recordings')
+
+class ConsentRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    recording_id = db.Column(db.Integer, db.ForeignKey('recording.id'), nullable=False)
+    requester_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    recipient_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    status = db.Column(db.String(20), default='pending')  # pending / approved / denied
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+    recording = db.relationship('Recording', backref=db.backref('consent_requests', cascade='all,delete-orphan'))
+    requester = db.relationship('User', foreign_keys=[requester_id])
+    recipient = db.relationship('User', foreign_keys=[recipient_id])
 
 

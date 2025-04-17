@@ -1,6 +1,6 @@
-from flask import Flask, render_template, redirect, url_for, request, flash, Response
+from flask import Flask, render_template, redirect, url_for, request, flash, Response, abort
 from config import Config
-from models import db, User, FriendRequest, Recording
+from models import db, User, FriendRequest, Recording , ConsentRequest
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
@@ -158,15 +158,25 @@ def logout():
 @app.route('/')
 @login_required
 def dashboard():
-    return render_template('dashboard.html', user=current_user)
+    pending_count = ConsentRequest.query.filter_by(
+        recipient_id=current_user.id, status='pending'
+    ).count()
+    return render_template('dashboard.html',
+                           user=current_user,
+                           pending_consents=pending_count)
+
 
 # --- Recordings Page ---
 @app.route('/recordings')
 @login_required
 def recordings():
-    # Query recordings for the current user.
-    user_recordings = Recording.query.filter_by(user_id=current_user.id).all()
-    return render_template('recordings.html', recordings=user_recordings)
+    # Query Recording model, not list of strings
+    recs = Recording.query.filter_by(user_id=current_user.id)\
+                         .order_by(Recording.timestamp.desc())\
+                         .all()
+    return render_template('recordings.html', recordings=recs)
+
+
 
 # --- Global Variables for Recording ---
 recording = False
@@ -245,29 +255,76 @@ def stop_recording():
     return redirect(url_for('live'))
 
 # --- Generator for Video Feed ---
+# def gen_frames(user_face_encodings):
+#     HL_USER = "ayush"
+#     HL_PWD = "password123"
+#     HL_IP = "192.168.1.144"
+#     hololens_stream=(f"http://{HL_USER}:{HL_PWD}@{HL_IP}/api/holographic/stream/live.mp4?olo=true&pv=true&mic=true&loopback=true")
+#     cap_live = cv2.VideoCapture(hololens_stream,cv2.CAP_FFMPEG)
+#     if not cap_live.isOpened():
+#         print("Error: Unable to open camera")
+#         return
+#     frame_width = int(cap_live.get(cv2.CAP_PROP_FRAME_WIDTH))
+#     frame_height = int(cap_live.get(cv2.CAP_PROP_FRAME_HEIGHT))
+#     while True:
+#         ret, frame = cap_live.read()
+#         if not ret:
+#             break
+#         processed_frame = process_frame(frame, user_face_encodings, scale_factor=0.5)
+#         ret, buffer = cv2.imencode('.jpg', processed_frame)
+#         if not ret:
+#             continue
+#         global recording, recorder
+#         if recording and recorder:
+#             rec_frame = cv2.resize(frame, (frame_width // 2, frame_height // 2))
+#             cv2.putText(rec_frame, "REC", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+#             recorder.write(rec_frame)
+#         yield (b'--frame\r\n'
+#                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+#     cap_live.release()
+import subprocess, io, struct, numpy as np
+
+def open_holo_stream():
+    HL_USER = "unnati"
+    HL_PWD  = "unnati5"
+    HL_IP   = "192.168.1.144"
+
+    url = (
+        f"http://{HL_USER}:{HL_PWD}@{HL_IP}"
+        "/api/holographic/stream/live.mp4?pv=true&loopback=true"
+    )
+
+    cmd = [
+        "ffmpeg", "-nostdin", "-loglevel", "error",
+        "-i", url,
+        "-vf", "fps=5,scale=640:360",
+        "-c:v", "mjpeg", "-qscale:v", "4",
+        "-f", "image2pipe", "-"
+    ]
+    return subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=0)
+
 def gen_frames(user_face_encodings):
-    cap_live = cv2.VideoCapture(0)
-    if not cap_live.isOpened():
-        print("Error: Unable to open camera")
-        return
-    frame_width = int(cap_live.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_height = int(cap_live.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    ff = open_holo_stream()
+
     while True:
-        ret, frame = cap_live.read()
-        if not ret:
-            break
-        processed_frame = process_frame(frame, user_face_encodings, scale_factor=0.5)
-        ret, buffer = cv2.imencode('.jpg', processed_frame)
-        if not ret:
-            continue
-        global recording, recorder
-        if recording and recorder:
-            rec_frame = cv2.resize(frame, (frame_width // 2, frame_height // 2))
-            cv2.putText(rec_frame, "REC", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            recorder.write(rec_frame)
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-    cap_live.release()
+        # ----- read one JPEG from the pipe -----
+        buf = bytearray()
+        while True:
+            b = ff.stdout.read(1)
+            if not b:
+                ff.terminate(); return           # ffmpeg closed
+            buf.append(b[0])
+            if len(buf) > 2 and buf[-2:] == b"\xff\xd9":
+                break                            # end‑of‑JPEG
+
+        frame = cv2.imdecode(np.frombuffer(buf, np.uint8), cv2.IMREAD_COLOR)
+        if frame is None: continue
+
+        processed = process_frame(frame, user_face_encodings)
+        ret, jpg = cv2.imencode('.jpg', processed)
+        yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' +
+               jpg.tobytes() + b'\r\n')
+
 
 @app.route('/video_feed')
 @login_required
@@ -283,16 +340,6 @@ def video_feed():
 def live():
     return render_template('live.html')
 
-# --- Consent Page (simplified) ---
-@app.route('/consent/<int:recording_id>', methods=['GET', 'POST'])
-@login_required
-def consent(recording_id):
-    if request.method == 'POST':
-        consent = request.form.get('consent')
-        # Update the recording record in the database (to be implemented)
-        flash("Consent updated.")
-        return redirect(url_for('recordings'))
-    return render_template('consent.html', recording_id=recording_id)
 
 # --- Send Friend Request ---
 @app.route('/send_friend_request', methods=['GET', 'POST'])
@@ -392,46 +439,168 @@ def my_faces():
         photos = []
     return render_template('my_faces.html', photos=photos)
 
-@app.route('/share_recording/<int:recording_id>')
+from face_processing import detect_friends_in_recording
+
+@app.route('/share_recording/<int:rec_id>')
 @login_required
-def share_recording(recording_id):
-    rec = Recording.query.get(recording_id)
-    if rec and rec.user_id == current_user.id:
-        rec.is_shared = True
+def share_recording(rec_id):
+    rec = Recording.query.get_or_404(rec_id)
+    if rec.user_id != current_user.id:
+        abort(403)
+
+    # 1) Who are your friends?
+    friends = current_user.get_friends()
+    print("🔍 Friends list:", [u.email for u in friends])
+
+    # 2) Build the dict of encodings
+    friend_encs = {u.id: u.face_encoding for u in friends if u.face_encoding is not None}
+    print("🔍 Friend encodings keys:", list(friend_encs.keys()))
+
+    # 3) Path to the video
+    path = os.path.join(app.root_path, 'static', 'recordings', rec.filename)
+    print("🔍 Recording path:", path)
+
+    # 4) Run detection
+    present_ids = detect_friends_in_recording(path, friend_encs)
+    print("🔍 Detected friend IDs in video:", present_ids)
+
+    # 5) Create ConsentRequest rows
+    for fid in present_ids:
+        exists = ConsentRequest.query.filter_by(recording_id=rec.id, recipient_id=fid).first()
+        print(f"   - Friend {fid} already has request? {bool(exists)}")
+        if not exists:
+            cr = ConsentRequest(
+                recording_id=rec.id,
+                requester_id=current_user.id,
+                recipient_id=fid
+            )
+            db.session.add(cr)
+
+    # 6) If no friends found, auto‑share
+    if not present_ids:
+        print("⚠️  No friends detected, auto‑sharing")
+        rec.consent_status = 'approved'
+        rec.is_shared     = True
+
+    db.session.commit()
+    flash(f"Consent requested from {len(present_ids)} friend(s).")
+    return redirect(url_for('consent_requests'))
+
+
+
+
+
+
+
+@app.route('/consent/<int:cr_id>', methods=['GET', 'POST'])
+@login_required
+def consent(cr_id):
+    cr = ConsentRequest.query.get_or_404(cr_id)
+    # only the intended recipient may respond
+    if cr.recipient_id != current_user.id:
+        abort(403)
+
+    if request.method == 'POST':
+        choice = request.form['consent']  # 'approved' or 'denied'
+        cr.status = choice
         db.session.commit()
-        print(f"Recording {recording_id} marked as shared.")
-        flash("Recording shared to feed.")
-    else:
-        flash("Recording not found or unauthorized.")
-    return redirect(url_for('recordings'))
+        flash("Your choice has been recorded.")
+
+        # Now check if ALL requests for this recording are approved
+        rec = Recording.query.get(cr.recording_id)
+        pending = ConsentRequest.query.filter_by(
+            recording_id=rec.id, status='pending'
+        ).count()
+        denied  = ConsentRequest.query.filter_by(
+            recording_id=rec.id, status='denied'
+        ).count()
+
+        if pending == 0 and denied == 0:
+            # everyone approved!
+            rec.is_shared = True
+            rec.consent_status = 'approved'
+            db.session.commit()
+            flash("All consents received—recording is now shared!")
+
+        return redirect(url_for('consent_requests'))
+
+
+    # GET: show the form
+    return render_template('consent.html', consent_request=cr)
+
+@app.route('/consents')
+@login_required
+def consent_requests():
+    pending = ConsentRequest.query.filter_by(
+        recipient_id=current_user.id, status='pending'
+    ).all()
+    return render_template('consents_list.html', requests=pending)
+
+
+@app.route('/respond_consent/<int:cr_id>/<decision>')
+@login_required
+def respond_consent(cr_id, decision):
+    cr = ConsentRequest.query.get_or_404(cr_id)
+    if cr.recipient_id != current_user.id:
+        abort(403)
+    if decision not in ('approve','deny'):
+        abort(400)
+    cr.status = 'approved' if decision=='approve' else 'denied'
+    db.session.commit()
+
+    # Now update the parent recording’s overall status:
+    rec = cr.recording
+    all_reqs = rec.consent_requests
+    if any(r.status=='denied' for r in all_reqs):
+        rec.consent_status = 'denied'
+        rec.is_shared     = False
+    elif all(r.status=='approved' for r in all_reqs):
+        rec.consent_status = 'approved'
+        rec.is_shared     = True
+    # else still pending
+    db.session.commit()
+
+    flash("Your response has been recorded.")
+    return redirect(url_for('consent_requests'))
 
 
 @app.route('/feed')
 @login_required
 def feed():
-    # Get all recordings from public accounts that are shared.
-    public_recordings = Recording.query.join(User).filter(
-        User.is_public_account == True,
-        Recording.is_shared == True
-    ).all()
-    
-    # For private accounts, include shared recordings if the owner is a friend or the current user.
-    friend_ids = [friend.id for friend in current_user.friends]
-    private_recordings = Recording.query.join(User).filter(
-        User.is_public_account == False,
-        Recording.is_shared == True,
-        ((Recording.user_id.in_(friend_ids)) | (Recording.user_id == current_user.id))
-    ).all()
-    
-    # Combine the recordings and sort them by timestamp (newest first).
-    all_recordings = public_recordings + private_recordings
-    all_recordings.sort(key=lambda r: r.timestamp, reverse=True)
-    
-    print("Public recordings:", public_recordings)
-    print("Private recordings:", private_recordings)
-    print("All recordings:", all_recordings)
-    
-    return render_template('feed.html', recordings=all_recordings)
+    # 1) Public recordings from public users
+    public_recs = (
+        Recording.query
+        .join(User, Recording.user_id == User.id)
+        .filter(Recording.is_shared == True, User.is_public_account == True)
+        .order_by(Recording.timestamp.desc())
+        .all()
+    )
+
+    # 2) Private recordings from your friends
+    friend_ids = [u.id for u in current_user.friends]
+    private_recs = (
+        Recording.query
+        .join(User, Recording.user_id == User.id)
+        .filter(
+            Recording.is_shared == True,
+            Recording.user_id.in_(friend_ids),
+            User.is_public_account == False
+        )
+        .order_by(Recording.timestamp.desc())
+        .all()
+    )
+
+    # Debug prints
+    print("🔍 Public in feed:", [r.id for r in public_recs])
+    print("🔍 Private in feed:", [r.id for r in private_recs])
+
+    return render_template(
+        'feed.html',
+        public_recordings=public_recs,
+        private_recordings=private_recs
+    )
+
+
 
 
 
