@@ -80,6 +80,14 @@ KNOWN_THRESHOLD_HIGH = 0.6  # Above this, classify as "Blurred"
 HISTORY_DURATION = 2.0       # Keep history for 2 seconds
 MATCH_DIST_THRESHOLD = 50    # If detection centers are within 50 pixels, consider them the same face
 HISTORY_LENGTH = 20          # Maximum number of frames in history
+# ─── HoloLens stream‑pipe parameters ────────────────────────────────────────────
+FPS_FOR_PIPE = 5            # the fps you ask ffmpeg to emit
+PIPE_WIDTH   = 640          # down‑scaled width
+PIPE_HEIGHT  = 360          # down‑scaled height
+# ────────────────────────────────────────────────────────────────────────────────
+
+
+
 
 # --- (Optional) Face Alignment ---
 align_enabled = False  # Set True if you have shape_predictor_68_face_landmarks.dat
@@ -256,6 +264,19 @@ def detect_friends_in_recording(recording_path, friend_encodings, frame_skip=30,
 
     cap.release()
     return list(detected)
+# ------------------------------------------------------------
+# Gracefully stop the VideoRecorder so FFmpeg can convert the file
+def _graceful_recorder_close(rec):
+    """
+    • tell the recorder thread to finish  
+    • wait until it has flushed the AVI/MJPEG file  
+    • give the OS a tiny pause so the file‑system cache is synced
+    """
+    if rec is not None:
+        rec.stop()
+        rec.join()
+        time.sleep(0.3)
+# ------------------------------------------------------------
 
 # --- Optional: Standalone Testing ---
 if __name__ == '__main__':
@@ -271,4 +292,6 @@ if __name__ == '__main__':
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
     cap.release()
+    _graceful_recorder_close(recorder)
     cv2.destroyAllWindows()
+

@@ -1,5 +1,6 @@
-from flask import Flask, render_template, redirect, url_for, request, flash, Response, abort
+from flask import Flask, render_template, redirect, url_for, request, flash, Response, abort, session, g
 from config import Config
+from pathlib import Path
 from models import db, User, FriendRequest, Recording , ConsentRequest
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -8,27 +9,27 @@ import cv2
 import time
 import subprocess
 
-
+# --- active recordings -------------------------------------------------
+# key = user_id   •   value = { "recorder": VideoRecorder , "raw_fp": path }
+ACTIVE_RECS = {}
+recording = False
+recorder = None
 
 def convert_video(input_path, output_path):
-    """
-    Converts a video file at input_path into an HTML5-friendly MP4 using H.264 (Baseline profile) and
-    moves the moov atom to the beginning for progressive download.
-    """
-    command = [
-        'ffmpeg',
-        '-i', input_path,
-        '-c:v', 'libx264',
-        '-profile:v', 'baseline',
-        '-level', '3.0',
-        '-pix_fmt', 'yuv420p',
-        '-movflags', 'faststart',
+    cmd = [
+        "ffmpeg", "-y",                # ‑y = overwrite
+        "-i", input_path,
+        "-c:v", "libx264", "-preset", "veryfast",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
         output_path
     ]
-    subprocess.run(command, check=True)
+    subprocess.run(cmd, check=True)
+
+
 
 # Import face processing function, known encodings, and VideoRecorder from your module.
-from face_processing import process_frame, KNOWN_ENCODINGS, VideoRecorder
+from face_processing import process_frame, KNOWN_ENCODINGS, VideoRecorder, _graceful_recorder_close, FPS_FOR_PIPE, PIPE_WIDTH, PIPE_HEIGHT
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -63,6 +64,25 @@ def local_time_filter(utc_dt):
     # Convert a UTC datetime to local time. Adjust the timezone as needed.
     local_tz = pytz.timezone("America/New_York")  # Change to your local timezone.
     return utc_dt.replace(tzinfo=pytz.utc).astimezone(local_tz).strftime('%Y-%m-%d %H:%M:%S')
+# ----------------------------------------------------------------------
+# 1)  put this helper near the top of the file (after the imports)
+# ----------------------------------------------------------------------
+def get_live_dimensions(source):
+    """Return (width, height, fps) depending on which camera is active."""
+    if source == "webcam":
+        cap = cv2.VideoCapture(0)
+        ok, w, h, fps = (
+            cap.isOpened(),
+            int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+            cap.get(cv2.CAP_PROP_FPS) or 30,
+        )
+        cap.release()
+        if not ok:
+            raise RuntimeError("Web‑cam not available.")
+        return w, h, fps
+    else:                                # hololens → 640 × 360 @ 30 FPS
+        return 640, 360, 30
 
 # --- Signup Route ---
 @app.route('/signup', methods=['GET', 'POST'])
@@ -179,38 +199,47 @@ def recordings():
 
 
 # --- Global Variables for Recording ---
-recording = False
-recorder = None
 
+
+# --- Start Recording Route ---
+# ----------------------------------------------------------------------
+# 2)  START‑RECORDING ROUTE – replace the body with this version
+# ----------------------------------------------------------------------
+# ----------------------------------------------------------------------
+#  Start a new recording for the logged‑in user
+# ----------------------------------------------------------------------
+# --- Start Recording Route ---
 # --- Start Recording Route ---
 @app.route('/start_recording')
 @login_required
 def start_recording():
     global recording, recorder
     if not recording:
+        # ensure output folder exists
         recordings_folder = os.path.join(app.root_path, 'static', 'recordings')
-        if not os.path.exists(recordings_folder):
-            os.makedirs(recordings_folder)
-        # Use .mp4 extension for an MP4 file.
-        filename = f"recording_{current_user.id}_{int(time.time())}.mp4"
-        filepath = os.path.join(recordings_folder, filename)
-        cap_temp = cv2.VideoCapture(0)
-        frame_width = int(cap_temp.get(cv2.CAP_PROP_FRAME_WIDTH)) // 2
-        frame_height = int(cap_temp.get(cv2.CAP_PROP_FRAME_HEIGHT)) // 2
-        fps = cap_temp.get(cv2.CAP_PROP_FPS)
-        if fps == 0:
-            fps = 30
-        cap_temp.release()
-        # Use the 'mp4v' codec, which typically produces MP4 files playable in browsers.
-        codec = cv2.VideoWriter_fourcc(*'mp4v')
-        from face_processing import VideoRecorder
-        recorder = VideoRecorder(filepath, codec, fps, (frame_width, frame_height))
-        recorder.start()
-        recording = True
-        print(f"Started recording, file will be saved to: {filepath}")
-        flash("Recording started.")
-    return redirect(url_for('live'))
+        os.makedirs(recordings_folder, exist_ok=True)
 
+        # use AVI + MJPG so ffmpeg can read it later
+        filename = f"recording_{current_user.id}_{int(time.time())}.avi"
+        filepath = os.path.join(recordings_folder, filename)
+
+        # probe webcam for dims/fps
+        cap_temp = cv2.VideoCapture(0)
+        W = int(cap_temp.get(cv2.CAP_PROP_FRAME_WIDTH))  // 2
+        H = int(cap_temp.get(cv2.CAP_PROP_FRAME_HEIGHT)) // 2
+        FPS = cap_temp.get(cv2.CAP_PROP_FPS) or 30
+        cap_temp.release()
+
+        # MJPG in AVI container
+        codec = cv2.VideoWriter_fourcc(*'MJPG')
+        recorder = VideoRecorder(filepath, codec, FPS, (W, H))
+        recorder.start()
+
+        recording = True
+        flash("Recording started.")
+    else:
+        flash("Already recording!")
+    return redirect(url_for('live'))
 
 
 # --- Stop Recording Route ---
@@ -218,41 +247,48 @@ def start_recording():
 @login_required
 def stop_recording():
     global recording, recorder
-    if recording and recorder:
-        recorder.stop()
-        recorder.join()
+    if not recording or recorder is None:
+        flash("No recording in progress.")
+        return redirect(url_for('live'))
 
-        # Get the raw file path from recorder.
-        raw_filepath = recorder.filename  # e.g., "static/recordings/recording_{user_id}_{timestamp}.avi" or .mp4
-        
-        # Define the output file path. We will save the converted file as MP4.
-        # For example, if raw_filepath is "static/recordings/recording_1_1612345678.mp4",
-        # output could be "static/recordings/recording_1_1612345678_converted.mp4"
-        import os
-        base, ext = os.path.splitext(raw_filepath)
-        output_filepath = f"{base}_converted.mp4"
-        
-        try:
-            convert_video(raw_filepath, output_filepath)
-            print(f"Video converted: {output_filepath}")
-            flash("Recording converted and shared.")
-            
-            # Optionally, remove the raw file if no longer needed:
-            os.remove(raw_filepath)
-            
-            # Save the recording info to the database using the converted file's name.
-            from models import Recording  # Ensure Recording is imported
-            filename_only = os.path.basename(output_filepath)
-            new_recording = Recording(user_id=current_user.id, filename=filename_only, is_shared=False)
-            db.session.add(new_recording)
-            db.session.commit()
-        except subprocess.CalledProcessError as e:
-            print("Video conversion failed:", e)
-            flash("Recording stopped, but conversion failed.")
-        
-        recorder = None
-        recording = False
-    return redirect(url_for('live'))
+    # stop the background thread
+    recorder.stop()
+    recorder.join()
+
+    # raw AVI on disk
+    raw_fp = recorder.filename
+
+    # convert to H.264‑MP4
+    base, _    = os.path.splitext(raw_fp)
+    out_fp     = f"{base}_converted.mp4"
+    try:
+        convert_video(raw_fp, out_fp)
+        os.remove(raw_fp)
+
+        # save to DB
+        new_rec = Recording(
+            user_id=current_user.id,
+            filename=os.path.basename(out_fp),
+            is_shared=False
+        )
+        db.session.add(new_rec)
+        db.session.commit()
+        flash("Recording saved!")
+    except Exception as e:
+        print("Conversion failed:", e)
+        flash("Recording stopped, conversion failed.")
+
+    # reset globals
+    recorder  = None
+    recording = False
+
+    return redirect(url_for('recordings'))
+
+
+
+
+
+
 
 # --- Generator for Video Feed ---
 # def gen_frames(user_face_encodings):
@@ -287,53 +323,135 @@ import subprocess, io, struct, numpy as np
 def open_holo_stream():
     HL_USER = "unnati"
     HL_PWD  = "unnati5"
-    HL_IP   = "192.168.1.144"
-
-    url = (
-        f"http://{HL_USER}:{HL_PWD}@{HL_IP}"
-        "/api/holographic/stream/live.mp4?pv=true&loopback=true"
-    )
-
+    HL_IP   = "10.154.27.75"
+    url = (f"http://{HL_USER}:{HL_PWD}@{HL_IP}"
+           "/api/holographic/stream/live.mp4?pv=true&loopback=true")
     cmd = [
-        "ffmpeg", "-nostdin", "-loglevel", "error",
+        "ffmpeg", "-nostdin", "-loglevel", "error",  # or "fatal"
         "-i", url,
-        "-vf", "fps=5,scale=640:360",
+        "-vf", f"fps={FPS_FOR_PIPE},scale={PIPE_WIDTH}:{PIPE_HEIGHT}",   #  ← changed
         "-c:v", "mjpeg", "-qscale:v", "4",
         "-f", "image2pipe", "-"
-    ]
+]
+
     return subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=0)
+# ─── top of file, *below* your HL_USER / HL_PWD / HL_IP constants ──────────────
+VIDEO_SOURCE_DEFAULT = "webcam"               # fallback
 
-def gen_frames(user_face_encodings):
-    ff = open_holo_stream()
+def get_video_source():
+    # Source is stored in session so one user’s choice
+    # doesn’t affect another’s.
+    return session.get("video_source", VIDEO_SOURCE_DEFAULT)
 
+def set_video_source(src):
+    session["video_source"] = src
+# ───────────────────────────────────────────────────────────────────────────────
+
+# ---------------------------------------------------------------
+#   generator: gen_frames
+#   ─ streams MJPEG from webcam ❶ or HoloLens ❷
+# ---------------------------------------------------------------
+def gen_frames(user_face_encodings, source):
+    """
+    Yield Motion‑JPEG frames for streaming, and write raw frames
+    into recorder when recording==True.
+
+    Parameters
+    ----------
+    user_face_encodings : list
+        All encodings (current user + friends) to leave unblurred.
+    source : str
+        "webcam"  → use local camera index 0  
+        "hololens"→ pull frames from the HoloLens Device‑Portal via open_holo_stream()
+    """
+    global recording, recorder
+
+    # ────────────────────────────── ❶ webcam ──────────────────────────────
+    if source == "webcam":
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            print("❌  Webcam not available")
+            return
+
+        def grab():
+            ok, frm = cap.read()
+            return frm if ok else None
+
+    # ────────────────────────────── ❷ hololens ────────────────────────────
+    else:
+        ff = open_holo_stream()   # you must have defined open_holo_stream() above
+
+        def grab():
+            # read one JPEG from ffmpeg stdout
+            buf = bytearray()
+            while True:
+                b = ff.stdout.read(1)
+                if not b:
+                    return None            # stream ended
+                buf.append(b[0])
+                if len(buf) > 1 and buf[-2:] == b"\xff\xd9":
+                    break                  # end‑of‑JPEG
+            return cv2.imdecode(np.frombuffer(buf, np.uint8), cv2.IMREAD_COLOR)
+
+    # ─────────────────────────── main streaming loop ─────────────────────
     while True:
-        # ----- read one JPEG from the pipe -----
-        buf = bytearray()
-        while True:
-            b = ff.stdout.read(1)
-            if not b:
-                ff.terminate(); return           # ffmpeg closed
-            buf.append(b[0])
-            if len(buf) > 2 and buf[-2:] == b"\xff\xd9":
-                break                            # end‑of‑JPEG
+        frame = grab()
+        if frame is None:
+            break                          # EOF or error → exit
 
-        frame = cv2.imdecode(np.frombuffer(buf, np.uint8), cv2.IMREAD_COLOR)
-        if frame is None: continue
-
+        # 1) face processing & blurring
         processed = process_frame(frame, user_face_encodings)
-        ret, jpg = cv2.imencode('.jpg', processed)
-        yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' +
-               jpg.tobytes() + b'\r\n')
+
+        # 2) record if requested (use the raw frame, not the blurred one)
+        if recording and recorder:
+            # downscale to recorder.resolution
+            rec_frame = cv2.resize(frame, recorder.resolution)
+            recorder.write(rec_frame)
+
+        # 3) encode to JPEG for MJPEG stream
+        ok, jpeg = cv2.imencode(".jpg", processed)
+        if not ok:
+            continue                      # skip bad frame
+
+        yield (
+            b"--frame\r\n"
+            b"Content-Type: image/jpeg\r\n\r\n" +
+            jpeg.tobytes() +
+            b"\r\n"
+        )
+
+    # ───────────────────────────── clean‑up ───────────────────────────────
+    if source == "webcam":
+        cap.release()
+    else:
+        ff.terminate()
+
+
 
 
 @app.route('/video_feed')
 @login_required
 def video_feed():
-    # Build the known encodings list from current user and their friends.
-    known_encodings = current_user.get_all_known_encodings()
-    if not known_encodings:
-        known_encodings = KNOWN_ENCODINGS  # fallback
-    return Response(gen_frames(known_encodings), mimetype='multipart/x-mixed-replace; boundary=frame')
+    # decide once, *inside* the request‑context
+    source = session.get("video_source", VIDEO_SOURCE_DEFAULT)  # "webcam" or "hololens"
+
+    # build encodings, etc. (unchanged)
+    known_encs = current_user.get_all_known_encodings() or KNOWN_ENCODINGS
+
+    # pass the chosen source into the generator
+    return Response(
+        gen_frames(known_encs, source),
+        mimetype='multipart/x-mixed-replace; boundary=frame'
+    )
+
+@app.route('/set_source/<src>')
+@login_required
+def set_source(src):
+    if src not in ("webcam", "hololens"):
+        abort(400)
+    set_video_source(src)
+    flash(f"Video source switched to {src.title()}.")
+    return redirect(url_for('live'))
 
 @app.route('/live')
 @login_required
