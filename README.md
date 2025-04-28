@@ -60,50 +60,50 @@ A privacy-preserving media sharing system that uses real-time face detection and
 ### Installation
 
 # Clone repo
-git clone https://github.com/your-org/face-consent-platform.git
+- git clone https://github.com/your-org/face-consent-platform.git
 cd face-consent-platform
 
 # Create & activate venv
-python3 -m venv venv
-source venv/bin/activate
+- python3 -m venv venv
+- source venv/bin/activate
 
 # Install Python deps
-pip install -r requirements.txt
+- pip install -r requirements.txt
 
 ### Configuration 
-Copy & adjust environment variables in a .env or your shell:
+- Copy & adjust environment variables in a .env or your shell:
 
-export SECRET_KEY="your-secret-key"
-export DATABASE_URL="sqlite:///app.db"         # or your DB URL
-export MAIL_USERNAME="you@example.com"
-export MAIL_PASSWORD="your-mail-password"
-export CELERY_BROKER_URL="redis://localhost:6379/0"
-export CELERY_RESULT_BACKEND="redis://localhost:6379/0"
+- export SECRET_KEY="your-secret-key"
+- export DATABASE_URL="sqlite:///app.db"         # or your DB URL
+- export MAIL_USERNAME="you@example.com"
+- export MAIL_PASSWORD="your-mail-password"
+- export CELERY_BROKER_URL="redis://localhost:6379/0"
+- export CELERY_RESULT_BACKEND="redis://localhost:6379/0"
 
 Initialize database (optional, app also calls db.create_all() on first request):
 
-flask db init
-flask db migrate
-flask db upgrade
+-flask db init
+-flask db migrate
+-flask db upgrade
 
 ### Usage
 #Start Redis
-redis-server
+- redis-server
 
 #Run Celery worker
-celery -A tasks.celery worker --loglevel=info
+- celery -A tasks.celery worker --loglevel=info
 
 #Run Flask server
-flask run --host=127.0.0.1 --port=8000
+- flask run --host=127.0.0.1 --port=8000
 
-Open browser at http://127.0.0.1:8000
+- Open browser at http://127.0.0.1:8000
 
-Signup → enroll face images
+- Signup → enroll face images
 
-Login → go to Live → select source (webcam/HoloLens) → Start Recording → Stop Recording
+- Login → go to Live → select source (webcam/HoloLens) → Start Recording → Stop Recording
 
-Share Recording → issues consent requests to detected friends
+- Share Recording → issues consent requests to detected friends
 
-Friends respond under Consents → once all approve, recording appears in Feed
+- Friends respond under Consents → once all approve, recording appears in Feed
 
 If you're using hololens, connect it to the same network and change the IP address in app.py.
