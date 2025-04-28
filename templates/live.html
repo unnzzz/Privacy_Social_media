@@ -2,7 +2,20 @@
 {% block content %}
 <h2>Live Stream</h2>
 <img src="{{ url_for('video_feed') }}" alt="Live Stream" style="max-width:100%;">
-
+<form style="margin-bottom:1rem;">
+  <label>
+    <input type="radio" name="src"
+    onchange="location.href='{{ url_for('set_source', src='webcam') }}'"
+          {% if session.get('video_source','webcam')=='webcam' %}checked{% endif %}>
+    Webcam
+  </label>
+  <label style="margin-left:1rem;">
+    <input type="radio" name="src"
+    onchange="location.href='{{ url_for('set_source', src='hololens') }}'"
+          {% if session.get('video_source')=='hololens' %}checked{% endif %}>
+    HoloLens
+  </label>
+</form>
 <div style="margin-top:20px;">
   <a href="{{ url_for('start_recording') }}"><button type="button">Start Recording</button></a>
   <a href="{{ url_for('stop_recording') }}"><button type="button">Stop Recording</button></a>

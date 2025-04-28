@@ -1,20 +1,36 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>Feed</h2>
-{% if recordings %}
-  {% for rec in recordings %}
-    <div style="margin-bottom:20px;">
-      <p>
-        <strong>{{ rec.user.name if rec.user else "Unknown" }}</strong> -
-        {{ rec.timestamp|local_time }}
-      </p>
-      <video width="320" height="240" controls>
-        <source src="{{ url_for('static', filename='recordings/' ~ rec.filename) }}" type="video/mp4">
-        Your browser does not support the video tag.
-      </video>
-    </div>
-  {% endfor %}
-{% else %}
-  <p>No recordings in the feed.</p>
-{% endif %}
+  <h2>Feed</h2>
+
+  <h3>Public Posts</h3>
+  {% if public_recordings %}
+    {% for rec in public_recordings %}
+      <div class="post">
+        <p><strong>{{ rec.user.name }}</strong> ({{ rec.user.email }})  
+           @ {{ rec.timestamp.strftime('%Y-%m-%d %H:%M') }}</p>
+        <video 
+          src="{{ url_for('static', filename='recordings/' ~ rec.filename) }}"
+          controls preload="metadata" style="max-width:100%;"
+        ></video>
+      </div>
+    {% endfor %}
+  {% else %}
+    <p>No public posts.</p>
+  {% endif %}
+
+  <h3>From Your Friends</h3>
+  {% if private_recordings %}
+    {% for rec in private_recordings %}
+      <div class="post">
+        <p><strong>{{ rec.user.name }}</strong> ({{ rec.user.email }})  
+           @ {{ rec.timestamp.strftime('%Y-%m-%d %H:%M') }}</p>
+        <video 
+          src="{{ url_for('static', filename='recordings/' ~ rec.filename) }}"
+          controls preload="metadata" style="max-width:100%;"
+        ></video>
+      </div>
+    {% endfor %}
+  {% else %}
+    <p>No posts from friends.</p>
+  {% endif %}
 {% endblock %}

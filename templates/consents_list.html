@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2>Your Consent Requests</h2>
+  {% if requests %}
+    <ul>
+      {% for cr in requests %}
+        <li>
+          {{ cr.requester.name }} wants to share <strong>{{ cr.recording.filename }}</strong>
+          (<a href="{{ url_for('consent', cr_id=cr.id) }}">View & Respond</a>)
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No pending requests.</p>
+  {% endif %}
+{% endblock %}

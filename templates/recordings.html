@@ -1,22 +1,36 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>Your Recordings</h2>
-<ul>
-  {% for rec in recordings %}
-    <li>
-      <a href="{{ url_for('static', filename='recordings/' ~ rec.filename) }}">
-        {{ rec.filename }} - {{ rec.timestamp|local_time }}
-      </a>
-      {% if not rec.is_shared %}
-        <a href="{{ url_for('share_recording', recording_id=rec.id) }}">
-          <button type="button">Share</button>
-        </a>
-      {% else %}
-        (Shared)
-      {% endif %}
-    </li>
+  <h2>Your Recordings</h2>
+
+  {% if recordings %}
+    <div class="recordings-grid">
+      {% for rec in recordings %}
+        <div class="recording-item" style="margin-bottom: 2rem;">
+          <p>{{ rec.filename }}</p>
+          <video 
+            src="{{ url_for('static', filename='recordings/' ~ rec.filename) }}" 
+            controls preload="metadata"
+            style="max-width: 100%; height: auto;"
+          >
+            Your browser does not support the video tag.
+          </video>
+
+          {% if not rec.is_shared %}
+            <p>
+              <a 
+                href="{{ url_for('share_recording', rec_id=rec.id) }}" 
+                onclick="return confirm('Request consent from friends detected in this video?');"
+              >Share ▶️</a>
+            </p>
+          {% else %}
+            <p>✅ Shared</p>
+          {% endif %}
+
+        </div>
+      {% endfor %}
+    </div>
   {% else %}
-    <li>No recordings available.</li>
-  {% endfor %}
-</ul>
+    <p>No recordings found.</p>
+  {% endif %}
+
 {% endblock %}
