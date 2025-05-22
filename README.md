@@ -1,7 +1,7 @@
 # Privacy_Social_media
 # Face Recognition–Based Consent Platform
 
-A privacy-preserving media sharing system that uses real-time face detection and recognition to enforce bystander consent before publishing live or recorded video streams. Ideal for AR devices (e.g., HoloLens 2) or webcams. :contentReference[oaicite:0]{index=0}
+A privacy-preserving media sharing system that uses real-time face detection and recognition to enforce bystander consent before publishing live or recorded video streams. Ideal for AR devices (e.g., HoloLens 2) or webcams. 
 
 ---
 
