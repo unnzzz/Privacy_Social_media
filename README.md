@@ -23,26 +23,26 @@ A privacy-preserving media sharing system that uses real-time face detection and
 ## Features
 
 - **User signup & face enrollment**  
-  Upload or capture portrait images; system extracts and stores face encodings :contentReference[oaicite:1]{index=1}&#8203;:contentReference[oaicite:2]{index=2}.  
-- **Login & session management** via Flask-Login :contentReference[oaicite:3]{index=3}&#8203;:contentReference[oaicite:4]{index=4}.  
-- **Live video feed** with blur/unblur based on known face encodings, switchable between webcam and HoloLens stream :contentReference[oaicite:5]{index=5}.  
-- **Start/stop recording** threadsafe AVI capture, FFmpeg conversion to H.264 MP4 :contentReference[oaicite:6]{index=6}&#8203;:contentReference[oaicite:7]{index=7}.  
-- **Friend network & requests** for implicit live unblur and targeted consent workflows :contentReference[oaicite:8]{index=8}.  
-- **Consent management**: detect friends in saved recordings, issue ConsentRequest entries, track approve/deny, auto-share when all approve :contentReference[oaicite:9]{index=9}.  
-- **Social feed**: displays public recordings and private friend-only recordings :contentReference[oaicite:10]{index=10}&#8203;:contentReference[oaicite:11]{index=11}.  
-- **Asynchronous tasks** via Celery for email notifications and reprocessing :contentReference[oaicite:12]{index=12}&#8203;:contentReference[oaicite:13]{index=13}.  
+  Upload or capture portrait images; system extracts and stores face encodings. 
+- **Login & session management** via Flask-Login
+- **Live video feed** with blur/unblur based on known face encodings, switchable between webcam and HoloLens stream. 
+- **Start/stop recording** threadsafe AVI capture, FFmpeg conversion to H.264 MP4.
+- **Friend network & requests** for implicit live unblur and targeted consent workflows.  
+- **Consent management**: detect friends in saved recordings, issue ConsentRequest entries, track approve/deny, auto-share when all approve.  
+- **Social feed**: displays public recordings and private friend-only recordings.  
+- **Asynchronous tasks** via Celery for email notifications and reprocessing.  
 
 ---
 
 ## Tech Stack
 
 - **Backend:** Python 3.8+, Flask, Flask-SQLAlchemy, Flask-Login, Flask-Migrate  
-- **Database:** SQLite (default) or any SQLAlchemy-supported DB :contentReference[oaicite:14]{index=14}&#8203;:contentReference[oaicite:15]{index=15}  
-- **Async & Mail:** Celery with Redis broker, Flask-Mail :contentReference[oaicite:16]{index=16}&#8203;:contentReference[oaicite:17]{index=17}  
+- **Database:** SQLite (default) or any SQLAlchemy-supported DB 
+- **Async & Mail:** Celery with Redis broker, Flask-Mail
 - **AI / CV:**  
-  - `facenet-pytorch` MTCNN for face detection :contentReference[oaicite:18]{index=18}&#8203;:contentReference[oaicite:19]{index=19}  
-  - `face_recognition` & dlib for embeddings & matching :contentReference[oaicite:20]{index=20}&#8203;:contentReference[oaicite:21]{index=21}  
-  - OpenCV for video I/O and blurring :contentReference[oaicite:22]{index=22}&#8203;:contentReference[oaicite:23]{index=23}  
+  - `facenet-pytorch` MTCNN for face detection
+  - `face_recognition` & dlib for embeddings & matching
+  - OpenCV for video I/O and blurring
 - **Frontend:** Jinja2 templates, HTML/CSS/JS  
 - **Dependencies:** see `requirements.txt`  
 
